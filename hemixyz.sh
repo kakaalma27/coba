@@ -139,7 +139,7 @@ After=network.target
 [Service]
 WorkingDirectory=$(pwd)
 ExecStart=$(pwd)/popmd
-Environment="POPM_BTC_PRIVKEY=${priv_keys[*]}"  # Pass the array of private keys as a space-separated string
+Environment="POPM_BTC_PRIVKEY=$(printf '%s,' "${priv_keys[@]}" | sed 's/,$//')"
 Environment="POPM_STATIC_FEE=$static_fee"
 Environment="POPM_BFG_URL=wss://testnet.rpc.hemi.network/v1/ws/public"
 Restart=on-failure
