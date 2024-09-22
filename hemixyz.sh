@@ -104,20 +104,10 @@ if [ "$choice" == "1" ]; then
     fi
 
 elif [ "$choice" == "2" ]; then
-    priv_keys=()
-    static_fees=()
-
-    while true; do
-        read -p "Enter your Private key: " priv_key
-        priv_keys+=("$priv_key")
-        read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
-        static_fees+=("$static_fee")
-
-        read -p "Do you want to add another private key? (y/N): " another_key
-        if [[ ! "$another_key" =~ ^[Yy]$ ]]; then
-            break
-        fi
-    done
+    read -p "Enter your Private keys (comma-separated): " priv_keys_input
+    IFS=',' read -r -a priv_keys <<< "$priv_keys_input"  # Split the input into an array
+    read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
+    echo
 fi
 
 if systemctl is-active --quiet hemi.service; then
@@ -129,13 +119,11 @@ else
 fi
 
 # Loop through each private key and start mining service
-for i in "${!priv_keys[@]}"; do
-    priv_key="${priv_keys[$i]}"
-    static_fee="${static_fees[$i]}"
-
-    cat << EOF | sudo tee /etc/systemd/system/hemi_$i.service > /dev/null
+for priv_key in "${priv_keys[@]}"; do
+    service_name="hemi_${priv_key//[^a-zA-Z0-9]/_}"  # Create a service name based on the private key
+    cat << EOF | sudo tee /etc/systemd/system/${service_name}.service > /dev/null
 [Unit]
-Description=Hemi Network popmd Service Instance $i
+Description=Hemi Network popmd Service for key: $priv_key
 After=network.target
 
 [Service]
@@ -151,9 +139,9 @@ WantedBy=multi-user.target
 EOF
 
     sudo systemctl daemon-reload
-    sudo systemctl enable hemi_$i.service
-    sudo systemctl start hemi_$i.service
-    show "PoP mining instance $i started with private key: $priv_key"
+    sudo systemctl enable "${service_name}.service"
+    sudo systemctl start "${service_name}.service"
 done
 
-show "PoP mining is successfully started for all keys."
+echo
+show "PoP mining has successfully started for all provided private keys."
