@@ -43,13 +43,13 @@ if [ "$ARCH" == "x86_64" ]; then
     if [ -d "heminetwork_${LATEST_VERSION}_linux_amd64" ]; then
         show "Latest version for x86_64 is already downloaded. Skipping download."
         cd "heminetwork_${LATEST_VERSION}_linux_amd64" || { show "Failed to change directory."; exit 1; }
-        download_required=false  # Set flag to false
+        download_required=false
     fi
 elif [ "$ARCH" == "arm64" ]; then
     if [ -d "heminetwork_${LATEST_VERSION}_linux_arm64" ]; then
         show "Latest version for arm64 is already downloaded. Skipping download."
         cd "heminetwork_${LATEST_VERSION}_linux_arm64" || { show "Failed to change directory."; exit 1; }
-        download_required=false  # Set flag to false
+        download_required=false
     fi
 fi
 
@@ -102,18 +102,33 @@ if [ "$choice" == "1" ]; then
             echo
         fi
     fi
-
 elif [ "$choice" == "2" ]; then
-    if [ ! -f config.txt ]; then
-        echo "Configuration file config.txt not found!"
-        exit 1
-    fi
+    priv_keys=()  # Array to hold private keys
+    while true; do
+        read -p "Enter your Private key (or type 'done' to finish): " priv_key
+        if [[ "$priv_key" == "done" ]]; then
+            break
+        fi
+        priv_keys+=("$priv_key")  # Add private key to array
+    done
+    read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
+    echo
+fi
 
-    while IFS= read -r priv_key; do
-        read -p "Enter static fee for $priv_key (numerical only, recommended: 100-200): " static_fee
-        echo
-        # Create a systemd service for each private key
-        cat << EOF | sudo tee /etc/systemd/system/hemi_${priv_key}.service > /dev/null
+if systemctl is-active --quiet hemi.service; then
+    show "hemi.service is currently running. Stopping and disabling it..."
+    sudo systemctl stop hemi.service
+    sudo systemctl disable hemi.service
+else
+    show "hemi.service is not running."
+fi
+
+# Loop through each private key and create a unique service for each
+for priv_key in "${priv_keys[@]}"; do
+    # Generate a unique service name based on the private key (you can use a hash or substring)
+    service_name="hemi-${priv_key:0:8}.service"  # Use the first 8 characters of the private key as identifier
+
+    cat << EOF | sudo tee /etc/systemd/system/$service_name > /dev/null
 [Unit]
 Description=Hemi Network popmd Service for $priv_key
 After=network.target
@@ -130,21 +145,8 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-        # Start the service
-        sudo systemctl daemon-reload
-        sudo systemctl enable hemi_${priv_key}.service
-        sudo systemctl start hemi_${priv_key}.service
-        echo "PoP mining started for private key: $priv_key"
-    done < config.txt
-fi
-
-if systemctl is-active --quiet hemi.service; then
-    show "hemi.service is currently running. Stopping and disabling it..."
-    sudo systemctl stop hemi.service
-    sudo systemctl disable hemi.service
-else
-    show "hemi.service is not running."
-fi
-
-echo
-show "PoP mining setup is complete."
+    sudo systemctl daemon-reload
+    sudo systemctl enable "$service_name"
+    sudo systemctl start "$service_name"
+    show "PoP mining is successfully started for private key: $priv_key with service name: $service_name"
+done
