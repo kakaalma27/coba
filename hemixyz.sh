@@ -75,7 +75,7 @@ fi
 echo
 show "Select only one option:"
 show "1. Use new wallet for PoP mining"
-show "2. Use existing wallet(s) for PoP mining"
+show "2. Use existing wallet for PoP mining"
 read -p "Enter your choice (1/2): " choice
 echo
 
@@ -104,26 +104,18 @@ if [ "$choice" == "1" ]; then
     fi
 
 elif [ "$choice" == "2" ]; then
-    read -p "Enter your Private keys (comma-separated): " priv_keys_input
-    IFS=',' read -r -a priv_keys <<< "$priv_keys_input"  # Split the input into an array
-    read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
-    echo
-fi
+    if [ ! -f config.txt ]; then
+        echo "Configuration file config.txt not found!"
+        exit 1
+    fi
 
-if systemctl is-active --quiet hemi.service; then
-    show "hemi.service is currently running. Stopping and disabling it..."
-    sudo systemctl stop hemi.service
-    sudo systemctl disable hemi.service
-else
-    show "hemi.service is not running."
-fi
-
-# Loop through each private key and start mining service
-for priv_key in "${priv_keys[@]}"; do
-    service_name="hemi_${priv_key//[^a-zA-Z0-9]/_}"  # Create a service name based on the private key
-    cat << EOF | sudo tee /etc/systemd/system/${service_name}.service > /dev/null
+    while IFS= read -r priv_key; do
+        read -p "Enter static fee for $priv_key (numerical only, recommended: 100-200): " static_fee
+        echo
+        # Create a systemd service for each private key
+        cat << EOF | sudo tee /etc/systemd/system/hemi_${priv_key}.service > /dev/null
 [Unit]
-Description=Hemi Network popmd Service for key: $priv_key
+Description=Hemi Network popmd Service for $priv_key
 After=network.target
 
 [Service]
@@ -138,10 +130,21 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable "${service_name}.service"
-    sudo systemctl start "${service_name}.service"
-done
+        # Start the service
+        sudo systemctl daemon-reload
+        sudo systemctl enable hemi_${priv_key}.service
+        sudo systemctl start hemi_${priv_key}.service
+        echo "PoP mining started for private key: $priv_key"
+    done < config.txt
+fi
+
+if systemctl is-active --quiet hemi.service; then
+    show "hemi.service is currently running. Stopping and disabling it..."
+    sudo systemctl stop hemi.service
+    sudo systemctl disable hemi.service
+else
+    show "hemi.service is not running."
+fi
 
 echo
-show "PoP mining has successfully started for all provided private keys."
+show "PoP mining setup is complete."
