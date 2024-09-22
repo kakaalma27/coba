@@ -43,13 +43,13 @@ if [ "$ARCH" == "x86_64" ]; then
     if [ -d "heminetwork_${LATEST_VERSION}_linux_amd64" ]; then
         show "Latest version for x86_64 is already downloaded. Skipping download."
         cd "heminetwork_${LATEST_VERSION}_linux_amd64" || { show "Failed to change directory."; exit 1; }
-        download_required=false
+        download_required=false  # Set flag to false
     fi
 elif [ "$ARCH" == "arm64" ]; then
     if [ -d "heminetwork_${LATEST_VERSION}_linux_arm64" ]; then
         show "Latest version for arm64 is already downloaded. Skipping download."
         cd "heminetwork_${LATEST_VERSION}_linux_arm64" || { show "Failed to change directory."; exit 1; }
-        download_required=false
+        download_required=false  # Set flag to false
     fi
 fi
 
@@ -75,7 +75,7 @@ fi
 echo
 show "Select only one option:"
 show "1. Use new wallet for PoP mining"
-show "2. Use existing wallet for PoP mining"
+show "2. Use existing wallet(s) for PoP mining"
 read -p "Enter your choice (1/2): " choice
 echo
 
@@ -104,47 +104,44 @@ if [ "$choice" == "1" ]; then
     fi
 
 elif [ "$choice" == "2" ]; then
-    declare -a priv_keys  # Declare an array to hold private keys
+    priv_keys=()
+    static_fees=()
+
     while true; do
-        read -p "Enter your Private key (or type 'done' to finish): " priv_key
-        if [[ "$priv_key" == "done" ]]; then
-            break  # Exit the loop if the user is done
+        read -p "Enter your Private key: " priv_key
+        priv_keys+=("$priv_key")
+        read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
+        static_fees+=("$static_fee")
+
+        read -p "Do you want to add another private key? (y/N): " another_key
+        if [[ ! "$another_key" =~ ^[Yy]$ ]]; then
+            break
         fi
-        priv_keys+=("$priv_key")  # Add the private key to the array
     done
-
-    # Show the collected private keys
-    echo "Collected Private Keys:"
-    for key in "${priv_keys[@]}"; do
-        echo "$key"
-    done
-
-    read -p "Enter static fee (numerical only, recommended: 100-200): " static_fee
-    echo
 fi
 
-# Generate unique service file for the user based on username
-SERVICE_NAME="hemi_${USER}.service"
-WORKING_DIR=$(pwd)
-
-if systemctl is-active --quiet "$SERVICE_NAME"; then
-    show "$SERVICE_NAME is currently running. Stopping and disabling it..."
-    sudo systemctl stop "$SERVICE_NAME"
-    sudo systemctl disable "$SERVICE_NAME"
+if systemctl is-active --quiet hemi.service; then
+    show "hemi.service is currently running. Stopping and disabling it..."
+    sudo systemctl stop hemi.service
+    sudo systemctl disable hemi.service
 else
-    show "$SERVICE_NAME is not running."
+    show "hemi.service is not running."
 fi
 
-# Write unique systemd service file for the user
-cat << EOF | sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null
+# Loop through each private key and start mining service
+for i in "${!priv_keys[@]}"; do
+    priv_key="${priv_keys[$i]}"
+    static_fee="${static_fees[$i]}"
+
+    cat << EOF | sudo tee /etc/systemd/system/hemi_$i.service > /dev/null
 [Unit]
-Description=Hemi Network popmd Service for $USER
+Description=Hemi Network popmd Service Instance $i
 After=network.target
 
 [Service]
-WorkingDirectory=$WORKING_DIR
-ExecStart=$WORKING_DIR/popmd
-Environment="POPM_BTC_PRIVKEY=$(printf '%s ' "${priv_keys[@]}")"
+WorkingDirectory=$(pwd)
+ExecStart=$(pwd)/popmd
+Environment="POPM_BTC_PRIVKEY=$priv_key"
 Environment="POPM_STATIC_FEE=$static_fee"
 Environment="POPM_BFG_URL=wss://testnet.rpc.hemi.network/v1/ws/public"
 Restart=on-failure
@@ -153,9 +150,10 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable the user-specific service
-sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl start "$SERVICE_NAME"
-echo
-show "PoP mining is successfully started for user $USER"
+    sudo systemctl daemon-reload
+    sudo systemctl enable hemi_$i.service
+    sudo systemctl start hemi_$i.service
+    show "PoP mining instance $i started with private key: $priv_key"
+done
+
+show "PoP mining is successfully started for all keys."
