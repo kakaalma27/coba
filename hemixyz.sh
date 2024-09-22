@@ -123,22 +123,27 @@ elif [ "$choice" == "2" ]; then
     echo
 fi
 
-if systemctl is-active --quiet hemi.service; then
-    show "hemi.service is currently running. Stopping and disabling it..."
-    sudo systemctl stop hemi.service
-    sudo systemctl disable hemi.service
+# Generate unique service file for the user based on username
+SERVICE_NAME="hemi_${USER}.service"
+WORKING_DIR=$(pwd)
+
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    show "$SERVICE_NAME is currently running. Stopping and disabling it..."
+    sudo systemctl stop "$SERVICE_NAME"
+    sudo systemctl disable "$SERVICE_NAME"
 else
-    show "hemi.service is not running."
+    show "$SERVICE_NAME is not running."
 fi
 
-cat << EOF | sudo tee /etc/systemd/system/hemi.service > /dev/null
+# Write unique systemd service file for the user
+cat << EOF | sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null
 [Unit]
-Description=Hemi Network popmd Service
+Description=Hemi Network popmd Service for $USER
 After=network.target
 
 [Service]
-WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/popmd
+WorkingDirectory=$WORKING_DIR
+ExecStart=$WORKING_DIR/popmd
 Environment="POPM_BTC_PRIVKEY=$(printf '%s,' "${priv_keys[@]}" | sed 's/,$//')"
 Environment="POPM_STATIC_FEE=$static_fee"
 Environment="POPM_BFG_URL=wss://testnet.rpc.hemi.network/v1/ws/public"
@@ -148,8 +153,9 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
+# Reload systemd and enable the user-specific service
 sudo systemctl daemon-reload
-sudo systemctl enable hemi.service
-sudo systemctl start hemi.service
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl start "$SERVICE_NAME"
 echo
-show "PoP mining is successfully started"
+show "PoP mining is successfully started for user $USER"
